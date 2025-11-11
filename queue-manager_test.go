@@ -4,7 +4,6 @@ package traefik_queue_manager
 import (
 	"bytes"
 	"context"
-
 	"io"
 	"log"
 	"net/http"
@@ -192,7 +191,7 @@ func TestGetClientID_NoCookies_IPUserAgentHash(t *testing.T) {
 	id1, _ := qm.getClientID(rr1, req1)
 
 	req2 := httptest.NewRequest("GET", "/", nil)
-	req2.RemoteAddr = "1.2.3.4:456" // Same IP, different port
+	req2.RemoteAddr = "1.2.3.4:456"             // Same IP, different port
 	req2.Header.Set("User-Agent", "TestAgent1") // Same User-Agent
 	rr2 := httptest.NewRecorder()
 	id2, _ := qm.getClientID(rr2, req2)
@@ -227,7 +226,6 @@ func TestFileExists(t *testing.T) {
 	f.Close()
 	defer os.Remove(tempFileName)
 
-
 	if !fileExists(tempFileName) {
 		t.Errorf("fileExists returned false for an existing file: %s", tempFileName)
 	}
@@ -235,7 +233,6 @@ func TestFileExists(t *testing.T) {
 		t.Error("fileExists returned true for a non-existing file")
 	}
 }
-
 
 func TestServeHTTP_CapacityAvailable(t *testing.T) {
 	cfg := CreateConfig()
@@ -245,7 +242,6 @@ func TestServeHTTP_CapacityAvailable(t *testing.T) {
 	// Capture logs
 	var logBuf bytes.Buffer
 	logger := log.New(&logBuf, "", 0)
-
 
 	nextCalled := false
 	nextHandler := &mockNext{serveHTTPFunc: func(w http.ResponseWriter, r *http.Request) {
@@ -262,7 +258,6 @@ func TestServeHTTP_CapacityAvailable(t *testing.T) {
 		qmInst.logger = logger
 		defer qmInst.Stop()
 	}
-
 
 	req := httptest.NewRequest("GET", "/", nil)
 	rr := httptest.NewRecorder()
@@ -281,7 +276,7 @@ func TestServeHTTP_CapacityAvailable(t *testing.T) {
 
 func TestServeHTTP_NoCapacity_QueueUser(t *testing.T) {
 	cfg := CreateConfig()
-	cfg.MaxEntries = 0 // Force no capacity
+	cfg.MaxEntries = 0                                                    // Force no capacity
 	cfg.QueuePageFile, _ = createTempFile(t, "Queue Page: [[.Position]]") // Valid template file
 	defer os.Remove(cfg.QueuePageFile)
 	cfg.Debug = true
@@ -305,7 +300,6 @@ func TestServeHTTP_NoCapacity_QueueUser(t *testing.T) {
 		defer qmInst.Stop()
 	}
 
-
 	req := httptest.NewRequest("GET", "/", nil)
 	rr := httptest.NewRecorder()
 
@@ -322,19 +316,17 @@ func TestServeHTTP_NoCapacity_QueueUser(t *testing.T) {
 	}
 }
 
-
 func TestServeHTTP_MultipleUsers_QueueAndProceed(t *testing.T) {
 	cfg := CreateConfig()
 	cfg.MaxEntries = 1
 	cfg.InactivityTimeoutSeconds = 1 // Short for testing expiry
 	cfg.CleanupIntervalSeconds = 1   // Short for testing cleanup
-	cfg.QueuePageFile, _ = createTempFile(t, "Queue: Pos [[.Position]] Size [[.QueueSize]] Wait [[.EstimatedWaitTime]]")
+	cfg.QueuePageFile, _ = createTempFile(t, "Queue: Pos [[.QueueData.Position]] Size [[.QueueData.QueueSize]] Wait [[.QueueData.EstimatedWaitTime]]")
 	defer os.Remove(cfg.QueuePageFile)
 	cfg.Debug = true
 
 	var logBuf bytes.Buffer
 	logger := log.New(&logBuf, "", 0)
-
 
 	var serviceAccessCount int
 	var mu sync.Mutex // To protect serviceAccessCount
@@ -405,10 +397,9 @@ func TestServeHTTP_MultipleUsers_QueueAndProceed(t *testing.T) {
 	// Inactivity is 1s, Cleanup is 1s. Wait a bit longer.
 	time.Sleep(time.Duration(cfg.InactivityTimeoutSeconds+cfg.CleanupIntervalSeconds+1) * time.Second)
 
-
 	// --- Client 2 again (should now get access) ---
 	req3 := httptest.NewRequest("GET", "/client2-retry", nil) // New request path for clarity
-	req3.Header.Set("X-Test-Client-ID", "client2") // Same client ID
+	req3.Header.Set("X-Test-Client-ID", "client2")            // Same client ID
 	// Add cookie that client 2 would have received from its first (queued) request
 	cookiesClient2 := rr2.Result().Cookies()
 	for _, c := range cookiesClient2 {
@@ -436,12 +427,11 @@ func TestServeHTTP_MultipleUsers_QueueAndProceed(t *testing.T) {
 	mu.Unlock()
 }
 
-
 func TestPrepareQueuePageData(t *testing.T) {
 	qm := &QueueManager{
-		config: CreateConfig(),
-		logger: log.New(io.Discard, "", 0),
-		queue:  make([]Session, 0),
+		config:           CreateConfig(),
+		logger:           log.New(io.Discard, "", 0),
+		queue:            make([]Session, 0),
 		activeSessionIDs: make(map[string]bool),
 	}
 	qm.config.MinWaitTimeMinutes = 1
@@ -449,35 +439,56 @@ func TestPrepareQueuePageData(t *testing.T) {
 
 	// Scenario 1: Empty queue, new user (pos 0)
 	data1 := qm.prepareQueuePageData(0) // pos 0 (first in line)
-	if data1.Position != 1 { t.Errorf("Expected Position 1, got %d", data1.Position) }
-	if data1.QueueSize != 0 { t.Errorf("Expected QueueSize 0, got %d", data1.QueueSize) }
-	if data1.EstimatedWaitTime != 1 { t.Errorf("Expected EstimatedWaitTime %d, got %d", qm.config.MinWaitTimeMinutes, data1.EstimatedWaitTime) } // Min wait time
-	if data1.ProgressPercentage != 99 {t.Errorf("Expected ProgressPercentage 99, got %d", data1.ProgressPercentage)}
-
+	if data1.Position != 1 {
+		t.Errorf("Expected Position 1, got %d", data1.Position)
+	}
+	if data1.QueueSize != 0 {
+		t.Errorf("Expected QueueSize 0, got %d", data1.QueueSize)
+	}
+	if data1.EstimatedWaitTime != 1 {
+		t.Errorf("Expected EstimatedWaitTime %d, got %d", qm.config.MinWaitTimeMinutes, data1.EstimatedWaitTime)
+	} // Min wait time
+	if data1.ProgressPercentage != 99 {
+		t.Errorf("Expected ProgressPercentage 99, got %d", data1.ProgressPercentage)
+	}
 
 	// Scenario 2: Queue with 5 people, user is 3rd in line (pos 2)
-	qm.queue = make([]Session, 5) // Simulate 5 people in queue
+	qm.queue = make([]Session, 5)       // Simulate 5 people in queue
 	data2 := qm.prepareQueuePageData(2) // 0-indexed position 2 (3rd person)
-	if data2.Position != 3 { t.Errorf("Expected Position 3, got %d", data2.Position) }
-	if data2.QueueSize != 5 { t.Errorf("Expected QueueSize 5, got %d", data2.QueueSize) }
+	if data2.Position != 3 {
+		t.Errorf("Expected Position 3, got %d", data2.Position)
+	}
+	if data2.QueueSize != 5 {
+		t.Errorf("Expected QueueSize 5, got %d", data2.QueueSize)
+	}
 	// Wait factor for pos 2 (0-indexed) is 0.3 + (2%5 * 0.08) = 0.3 + 0.16 = 0.46
 	// Raw wait = 2 * 0.46 = 0.92. Ceil(0.92) = 1. Max(1, MinWaitTime=1) = 1
-	if data2.EstimatedWaitTime != 1 { t.Errorf("Expected EstimatedWaitTime 1, got %d", data2.EstimatedWaitTime) }
+	if data2.EstimatedWaitTime != 1 {
+		t.Errorf("Expected EstimatedWaitTime 1, got %d", data2.EstimatedWaitTime)
+	}
 	// Progress: (5 - (2+1)) / 5 * 100 = (5-3)/5 * 100 = 2/5 * 100 = 40%
-	if data2.ProgressPercentage != 40 { t.Errorf("Expected ProgressPercentage 40, got %d", data2.ProgressPercentage) }
-
+	if data2.ProgressPercentage != 40 {
+		t.Errorf("Expected ProgressPercentage 40, got %d", data2.ProgressPercentage)
+	}
 
 	// Scenario 3: Queue with 1 person, user is 1st (pos 0)
 	qm.queue = make([]Session, 1)
 	data3 := qm.prepareQueuePageData(0)
-	if data3.Position != 1 { t.Errorf("Expected Position 1, got %d", data3.Position) }
-	if data3.QueueSize != 1 { t.Errorf("Expected QueueSize 1, got %d", data3.QueueSize) }
-	if data3.EstimatedWaitTime != 1 { t.Errorf("Expected EstimatedWaitTime %d, got %d", qm.config.MinWaitTimeMinutes, data3.EstimatedWaitTime) }
+	if data3.Position != 1 {
+		t.Errorf("Expected Position 1, got %d", data3.Position)
+	}
+	if data3.QueueSize != 1 {
+		t.Errorf("Expected QueueSize 1, got %d", data3.QueueSize)
+	}
+	if data3.EstimatedWaitTime != 1 {
+		t.Errorf("Expected EstimatedWaitTime %d, got %d", qm.config.MinWaitTimeMinutes, data3.EstimatedWaitTime)
+	}
 	// Progress: (1 - (0+1)) / 1 * 100 = 0. Should be adjusted.
 	// The logic is: if queueSize == 1 && positionInQueue == 0 -> 50%
-	if data3.ProgressPercentage != 50 {t.Errorf("Expected ProgressPercentage 50 for single item queue, got %d", data3.ProgressPercentage)}
+	if data3.ProgressPercentage != 50 {
+		t.Errorf("Expected ProgressPercentage 50 for single item queue, got %d", data3.ProgressPercentage)
+	}
 }
-
 
 // Note: Add more comprehensive tests, especially for CleanupExpiredSessions scenarios
 // including hard session limits, and more edge cases for ServeHTTP.

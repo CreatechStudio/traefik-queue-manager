@@ -142,7 +142,7 @@
         </div>
         
         <div class="countdown-message">
-            [[ printf .Translations.RefreshTime .QueueData.RefreshInterval ]]
+            [[ printf .Translations.RefreshTime .QueueData.RefreshInterval | safeHtml ]]
         </div>
 
         <div class="debug-info">
