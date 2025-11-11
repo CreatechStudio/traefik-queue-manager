@@ -80,20 +80,21 @@ experimental:
 
 ### Plugin Configuration Options
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `enabled` | boolean | `true` | Enable/disable the queue manager |
-| `queuePageFile` | string | `queue-page.html` | Path to the queue page HTML template |
-| `sessionTime` | duration | `60` | Duration for which a visitor session is valid |
-| `purgeTime` | duration | `300` | How often expired sessions are purged from cache |
-| `maxEntries` | int | `100` | Maximum number of concurrent users allowed |
-| `httpResponseCode` | int | `429` | HTTP response code for queue page |
-| `httpContentType` | string | `text/html; charset=utf-8` | Content type of queue page |
-| `useCookies` | boolean | `true` | Use cookies for tracking; if false, uses IP+UserAgent hash |
-| `cookieName` | string | `queue-manager-id` | Name of the cookie used for tracking |
-| `cookieMaxAge` | int | `3600` | Max age of the cookie in seconds |
-| `refreshInterval` | int | `30` | Refresh interval in seconds |
-| `debug` | boolean | `false` | Enable debug logging |
+| Option                  | Type | Default | Description                                                |
+|-------------------------|------|---------|------------------------------------------------------------|
+| `enabled`               | boolean | `true` | Enable/disable the queue manager                           |
+| `queuePageFile`         | string | `/var/public/queue-page.html` | Path to the queue page HTML template                       |
+| `queueTranslationsFile` | string | `/var/public/translations.json` | Path to the queue json translations                        |
+| `sessionTime`           | duration | `60` | Duration for which a visitor session is valid              |
+| `purgeTime`             | duration | `300` | How often expired sessions are purged from cache           |
+| `maxEntries`            | int | `100` | Maximum number of concurrent users allowed                 |
+| `httpResponseCode`      | int | `429` | HTTP response code for queue page                          |
+| `httpContentType`       | string | `text/html; charset=utf-8` | Content type of queue page                                 |
+| `useCookies`            | boolean | `true` | Use cookies for tracking; if false, uses IP+UserAgent hash |
+| `cookieName`            | string | `queue-manager-id` | Name of the cookie used for tracking                       |
+| `cookieMaxAge`          | int | `3600` | Max age of the cookie in seconds                           |
+| `refreshInterval`       | int | `30` | Refresh interval in seconds                                |
+| `debug`                 | boolean | `false` | Enable debug logging                                       |
 
 ### Example Configuration
 
@@ -101,7 +102,8 @@ experimental:
 # Dynamic configuration with Docker provider
 labels:
   - traefik.http.middlewares.queuemanager.plugin.queuemanager.enabled=true
-  - traefik.http.middlewares.queuemanager.plugin.queuemanager.queuePageFile=/path/to/queue-page.html
+  - traefik.http.middlewares.queuemanager.plugin.queuemanager.queuePageFile=/var/public/queue-page.html
+  - traefik.http.middlewares.queuemanager.plugin.queuemanager.queueTranslationsFile=/var/public/translations.json
   - traefik.http.middlewares.queuemanager.plugin.queuemanager.maxEntries=500
   - traefik.http.middlewares.queuemanager.plugin.queuemanager.sessionTime=5m
   - traefik.http.middlewares.queuemanager.plugin.queuemanager.useCookies=true
@@ -112,12 +114,32 @@ labels:
 
 You can customize the queue page by modifying the HTML template. The template supports the following variables:
 
-- `[[.Position]]` - Current position in queue
-- `[[.QueueSize]]` - Total queue size 
-- `[[.EstimatedWaitTime]]` - Estimated wait time in minutes
-- `[[.RefreshInterval]]` - Refresh interval in seconds
-- `[[.ProgressPercentage]]` - Visual progress percentage
-- `[[.Message]]` - Custom message
+- `[[.QueueData.Position]]` - Current position in queue
+- `[[.QueueData.QueueSize]]` - Total queue size 
+- `[[.QueueData.EstimatedWaitTime]]` - Estimated wait time in minutes
+- `[[.QueueData.RefreshInterval]]` - Refresh interval in seconds
+- `[[.QueueData.ProgressPercentage]]` - Visual progress percentage
+- `[[.QueueData.Message]]` - Custom message
+
+## Translations
+
+Translations are loaded at boot from a json file. The key represent the ISO code with two letters (i.e.: en for en-US).
+
+```json
+{
+  "en": {
+    "pageTitle": "Service Queue - Please Wait",
+    "title": "You're in the Queue",
+    "introduction": "Our services are currently experiencing high demand. Your patience is appreciated. You will be automatically redirected when it's your turn.",
+    "yourPosition": "Your Position",
+    "eta": "Estimated Wait Time",
+    "refreshTime": "This page will automatically refresh in %d seconds",
+    "mins": "min(s)"
+  }
+}
+```
+
+They are loaded in HTML using an upper first letter like this: `title` become `[[.Translations.Title]]`
 
 ## Example Usage with Docker Compose
 
@@ -138,11 +160,10 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./:/plugins-local/src/github.com/hhftechnology/traefik-queue-manager
+      - ./public:/var/public
     labels:
-      - traefik.http.middlewares.queuemanager.plugin.queuemanager.enabled=true
-      - traefik.http.middlewares.queuemanager.plugin.queuemanager.queuePageFile=/plugins-local/src/github.com/hhftechnology/traefik-queue-manager/queue-page.html
-      - traefik.http.middlewares.queuemanager.plugin.queuemanager.maxEntries=5
-      - traefik.http.middlewares.queuemanager.plugin.queuemanager.sessionTime=1m
+      - traefik.http.middlewares.queuemanager.plugin.queuemanager.queuePageFile=/plugins-local/src/github.com/hhftechnology/traefik-queue-manager/public/queue-page.html
+      - traefik.http.middlewares.queuemanager.plugin.queuemanager.queueTranslationsFile=/plugins-local/src/github.com/hhftechnology/traefik-queue-manager/public/translations.json
 
   myservice:
     image: traefik/whoami
@@ -151,7 +172,10 @@ services:
       - traefik.enable=true
       - traefik.http.routers.myservice.rule=Host(`service.local`)
       - traefik.http.routers.myservice.entrypoints=web
-      - traefik.http.routers.myservice.middlewares=queuemanager
+      - traefik.http.routers.myservice.middlewares=qm
+      - traefik.http.middlewares.qm.plugin.queuemanager.enabled=true
+      - traefik.http.middlewares.qm.plugin.queuemanager.maxEntries=5
+      - traefik.http.middlewares.qm.plugin.queuemanager.sessionTime=1m
 ```
 ```yaml
 # This is an example of how to configure the Queue Manager middleware
