@@ -8,6 +8,7 @@ testData:
   enabled: true
   maxEntries: 100
   sessionTime: 1m
-  queuePageFile: queue-page.html
+  queuePageFile: "/var/public/queue-page.html"
+  queueTranslationsFile: "/var/public/translations.json"
   useCookies: true
   cookieName: queue-manager-id

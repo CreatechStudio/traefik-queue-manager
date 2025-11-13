@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Service Queue - Please Wait</title>
+    <title>[[.Translations.PageTitle]]</title>
     
-    <meta http-equiv="refresh" content="[[.RefreshInterval]];url=./"> <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0, s-maxage=0">
+    <meta http-equiv="refresh" content="[[.QueueData.RefreshInterval]];url=./"> <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0, s-maxage=0">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0"> <style>
         body {
@@ -49,7 +49,7 @@
         }
         .progress-bar {
             height: 28px; /* Taller progress bar */
-            width: [[.ProgressPercentage]]%; /* Dynamically set width */
+            width: [[.QueueData.ProgressPercentage]]%; /* Dynamically set width */
             background: linear-gradient(90deg, #007bff, #0056b3); /* Blue gradient */
             border-radius: 8px; /* Match container's rounding */
             text-align: center;
@@ -98,7 +98,7 @@
             font-size: 0.8em;
             color: #444;
             word-break: break-all;
-            display: [[if .DebugInfo]]block[[else]]none[[end]]; /* Conditional display */
+            display: [[if .QueueData.DebugInfo]]block[[else]]none[[end]]; /* Conditional display */
         }
         .debug-info pre {
              white-space: pre-wrap; /* Allow wrapping for long debug lines */
@@ -123,39 +123,37 @@
 </head>
 <body>
     <div class="container">
-        <div class="spinner"></div> <h1>You're in the Queue</h1>
-        <p>Our services are currently experiencing high demand. Your patience is appreciated. You will be automatically redirected when it's your turn.</p>
+        <div class="spinner"></div> <h1>[[.Translations.Title]]</h1>
+        <p>[[.Translations.Introduction]]</p>
         
         <div class="progress-container">
-            <div class="progress-bar">[[.ProgressPercentage]]%</div>
+            <div class="progress-bar">[[.QueueData.ProgressPercentage]]%</div>
         </div>
         
         <div class="info-grid">
             <div class="info-box">
-                <strong>Your Position</strong>
-                <p>[[.Position]] / [[.QueueSize]]</p>
+                <strong>[[.Translations.YourPosition]]</strong>
+                <p>[[.QueueData.Position]] / [[.QueueData.QueueSize]]</p>
             </div>
             <div class="info-box">
-                <strong>Estimated Wait Time</strong>
-                <p>~[[.EstimatedWaitTime]] min(s)</p>
+                <strong>[[.Translations.ETA]]</strong>
+                <p>~[[.QueueData.EstimatedWaitTime]] [[.Translations.Mins]]</p>
             </div>
         </div>
         
-        <p>[[.Message]]</p>
-        
         <div class="countdown-message">
-            This page will automatically refresh in <strong id="countdown">[[.RefreshInterval]]</strong> seconds.
+            [[ printf .Translations.RefreshTime .QueueData.RefreshInterval | safeHtml ]]
         </div>
 
         <div class="debug-info">
             <strong>Debug Information:</strong>
-            <pre>[[.DebugInfo]]</pre>
+            <pre>[[.QueueData.DebugInfo]]</pre>
         </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            let countdownSeconds = parseInt("[[.RefreshInterval]]", 10);
+            let countdownSeconds = parseInt("[[.QueueData.RefreshInterval]]", 10);
             const countdownElement = document.getElementById('countdown');
             
             if (countdownElement) {
@@ -183,7 +181,7 @@
             setTimeout(function() {
                 const cleanUrl = window.location.pathname;
                 window.location.href = cleanUrl + (cleanUrl.includes('?') ? '&' : '?') + 't_fallback=' + new Date().getTime();
-            }, (parseInt("[[.RefreshInterval]]", 10) -1) * 1000); // 1 second before meta refresh
+            }, (parseInt("[[.QueueData.RefreshInterval]]", 10) -1) * 1000); // 1 second before meta refresh
         });
     </script>
 </body>
