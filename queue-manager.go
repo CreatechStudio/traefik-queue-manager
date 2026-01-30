@@ -48,8 +48,8 @@ type Config struct {
 	Enabled                  bool   `json:"enabled"`                  // Enable/disable the queue manager
 	QueuePageFile            string `json:"queuePageFile"`            // Path to queue page HTML template
 	QueueTranslationsFile    string `json:"queueTranslationsFile"`    // Path to queue translations json template
-	StartTime                string `json:"startTime"`                // Optional: RFC3339 datetime when access can start
-	StartTimeZone            string `json:"startTimeZone"`            // Timezone name for startTime parsing (e.g. "UTC", "America/New_York")
+	StartTime                string `json:"startTime"`                // Optional: RFC3339 datetime when access can start (offset in string is respected, StartTimeZone reinterprets in that zone)
+	StartTimeZone            string `json:"startTimeZone"`            // Timezone name for startTime (e.g. "UTC", "America/New_York"); if set, StartTime is converted to this zone
 	InactivityTimeoutSeconds int    `json:"inactivityTimeoutSeconds"` // How long an inactive session is valid for (in seconds)
 	HardSessionLimitSeconds  int    `json:"hardSessionLimitSeconds"`  // Optional: Absolute max time for an active session (seconds), 0 to disable
 	CleanupIntervalSeconds   int    `json:"cleanupIntervalSeconds"`   // How often to run cleanup logic (in seconds)
@@ -224,19 +224,21 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 	}
 
 	if config.StartTime != "" {
-		locationName := config.StartTimeZone
-		if strings.TrimSpace(locationName) == "" {
+		startParsed, err := time.Parse(time.RFC3339, config.StartTime)
+		if err != nil {
+			return nil, fmt.Errorf("invalid startTime '%s': %w", config.StartTime, err)
+		}
+
+		locationName := strings.TrimSpace(config.StartTimeZone)
+		if locationName == "" {
 			locationName = "UTC"
 		}
 		loc, err := time.LoadLocation(locationName)
 		if err != nil {
 			return nil, fmt.Errorf("invalid startTimeZone '%s': %w", locationName, err)
 		}
-		startTime, err := time.ParseInLocation(time.RFC3339, config.StartTime, loc)
-		if err != nil {
-			return nil, fmt.Errorf("invalid startTime '%s': %w", config.StartTime, err)
-		}
-		qm.startTime = startTime
+
+		qm.startTime = startParsed.In(loc)
 		qm.startTimeEnabled = true
 	}
 
@@ -386,7 +388,7 @@ func (qm *QueueManager) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 
 	// If start time is configured and not yet reached, serve waiting page without progressing queue
-	if qm.startTimeEnabled && time.Now().Before(qm.startTime) {
+	if qm.startTimeEnabled && time.Now().In(qm.startTime.Location()).Before(qm.startTime) {
 		qm.serveQueuePage(rw, req, 0)
 		return
 	}
@@ -773,12 +775,12 @@ func (qm *QueueManager) prepareQueuePageData(positionInQueue int) QueuePageData 
 	if qm.startTimeEnabled {
 		now := time.Now().In(qm.startTime.Location())
 		start := qm.startTime
-		secondsUntilStart = int(time.Until(start).Seconds())
+		secondsUntilStart = int(start.Sub(now).Seconds())
 		if secondsUntilStart < 0 {
 			secondsUntilStart = 0
 		}
-		startReached = now.After(start) || secondsUntilStart == 0
-		startTimeStr = start.Format(time.RFC3339)
+		startReached = !now.Before(start)
+		startTimeStr = start.In(time.UTC).Format(time.RFC3339)
 		if qm.config.Debug {
 			debugInfo += fmt.Sprintf(", StartTime: %s, StartReached: %t, SecondsUntilStart: %d", startTimeStr, startReached, secondsUntilStart)
 		}

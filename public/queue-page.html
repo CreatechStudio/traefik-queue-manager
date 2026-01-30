@@ -179,12 +179,12 @@
                         // window.location.reload(true); 
                     }
                 }
-                // Initial call to set the value, then interval
-                if (countdownSeconds > 0) {
-                     countdownElement.textContent = countdownSeconds;
-             setInterval(updateCountdown, 1000);
-         }
-     }
+            // Initial call to set the value, then interval
+            if (countdownSeconds > 0) {
+                countdownElement.textContent = countdownSeconds;
+                setInterval(updateCountdown, 1000);
+            }
+        }
 
             // Countdown to start time if provided
             const startCountdownEl = document.getElementById('start-countdown');
@@ -198,6 +198,7 @@
                         window.location.reload(true);
                     }
                 };
+                tick();
                 setInterval(tick, 1000);
             }
 
