@@ -1,3 +1,3 @@
-module github.com/hhftechnology/traefik-queue-manager
+module github.com/createchstudio/traefik-queue-manager
 
 go 1.19

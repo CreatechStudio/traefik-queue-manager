@@ -1,6 +1,6 @@
 displayName: Queue Manager
 type: middleware
-import: github.com/hhftechnology/traefik-queue-manager
+import: github.com/createchstudio/traefik-queue-manager
 summary: |
   This plugin implements a queue management system for Traefik services, limiting the number of concurrent users and placing excess traffic in a fair, first-come-first-served queue with automatic refresh.
 iconPath: .assets/icon.png
