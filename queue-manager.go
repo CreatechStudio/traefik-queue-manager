@@ -48,6 +48,8 @@ type Config struct {
 	Enabled                  bool   `json:"enabled"`                  // Enable/disable the queue manager
 	QueuePageFile            string `json:"queuePageFile"`            // Path to queue page HTML template
 	QueueTranslationsFile    string `json:"queueTranslationsFile"`    // Path to queue translations json template
+	StartTime                string `json:"startTime"`                // Optional: RFC3339 datetime when access can start (offset in string is respected, StartTimeZone reinterprets in that zone)
+	StartTimeZone            string `json:"startTimeZone"`            // Timezone name for startTime (e.g. "UTC", "America/New_York"); if set, StartTime is converted to this zone
 	InactivityTimeoutSeconds int    `json:"inactivityTimeoutSeconds"` // How long an inactive session is valid for (in seconds)
 	HardSessionLimitSeconds  int    `json:"hardSessionLimitSeconds"`  // Optional: Absolute max time for an active session (seconds), 0 to disable
 	CleanupIntervalSeconds   int    `json:"cleanupIntervalSeconds"`   // How often to run cleanup logic (in seconds)
@@ -71,6 +73,8 @@ func CreateConfig() *Config {
 		Enabled:                  true,
 		QueuePageFile:            defaultQueuePageFile,
 		QueueTranslationsFile:    defaultQueueTranslationsFile,
+		StartTime:                "",
+		StartTimeZone:            "UTC",
 		InactivityTimeoutSeconds: defaultInactivityTimeoutSecs,
 		HardSessionLimitSeconds:  0, // Disabled by default
 		CleanupIntervalSeconds:   defaultCleanupIntervalSecs,
@@ -106,6 +110,9 @@ type QueuePageData struct {
 	RefreshInterval    int    `json:"refreshInterval"`    // Refresh interval in seconds for the page
 	ProgressPercentage int    `json:"progressPercentage"` // Visual progress percentage
 	DebugInfo          string `json:"debugInfo"`          // Debug information (only shown if debug mode enabled)
+	StartTime          string `json:"startTime"`          // Configured start time (RFC3339)
+	SecondsUntilStart  int    `json:"secondsUntilStart"`  // Seconds remaining before start time
+	StartTimeReached   bool   `json:"startTimeReached"`   // Indicates whether start time has been reached
 }
 
 type TranslatedMessages struct {
@@ -143,6 +150,8 @@ type QueueManager struct {
 	inactivityTimeoutDur time.Duration
 	hardSessionLimitDur  time.Duration // Will be 0 if not configured
 	cleanupIntervalDur   time.Duration
+	startTime            time.Time
+	startTimeEnabled     bool
 
 	// Cleanup routine
 	cleanupTicker *time.Ticker
@@ -212,6 +221,25 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		inactivityTimeoutDur: time.Duration(config.InactivityTimeoutSeconds) * time.Second,
 		cleanupIntervalDur:   time.Duration(config.CleanupIntervalSeconds) * time.Second,
 		logFileHandle:        logFileHandle, // Store the file handle
+	}
+
+	if config.StartTime != "" {
+		startParsed, err := time.Parse(time.RFC3339, config.StartTime)
+		if err != nil {
+			return nil, fmt.Errorf("invalid startTime '%s': %w", config.StartTime, err)
+		}
+
+		locationName := strings.TrimSpace(config.StartTimeZone)
+		if locationName == "" {
+			locationName = "UTC"
+		}
+		loc, err := time.LoadLocation(locationName)
+		if err != nil {
+			return nil, fmt.Errorf("invalid startTimeZone '%s': %w", locationName, err)
+		}
+
+		qm.startTime = startParsed.In(loc)
+		qm.startTimeEnabled = true
 	}
 
 	if config.HardSessionLimitSeconds > 0 {
@@ -356,6 +384,12 @@ func (qm *QueueManager) startCleanupRoutine() {
 func (qm *QueueManager) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	if !qm.config.Enabled {
 		qm.next.ServeHTTP(rw, req)
+		return
+	}
+
+	// If start time is configured and not yet reached, serve waiting page without progressing queue
+	if qm.startTimeEnabled && time.Now().In(qm.startTime.Location()).Before(qm.startTime) {
+		qm.serveQueuePage(rw, req, 0)
 		return
 	}
 
@@ -620,7 +654,7 @@ func getClientIP(req *http.Request) string {
 func (qm *QueueManager) serveQueuePage(rw http.ResponseWriter, req *http.Request, positionInQueue int) {
 	pageData := qm.prepareQueuePageData(positionInQueue)
 	translations := qm.getTranslatedMessages(req)
-	qm.logf("denug", "Got translations: %v", translations)
+	qm.logf("debug", "Got translations: %v", translations)
 
 	data := QueueTemplateData{
 		QueueData:    pageData,
@@ -735,6 +769,23 @@ func (qm *QueueManager) prepareQueuePageData(positionInQueue int) QueuePageData 
 			positionInQueue, queueSize, activeCount, qm.config.MaxEntries, rawEstimatedTime, waitFactor)
 	}
 
+	var secondsUntilStart int
+	var startReached bool
+	var startTimeStr string
+	if qm.startTimeEnabled {
+		now := time.Now().In(qm.startTime.Location())
+		start := qm.startTime
+		secondsUntilStart = int(start.Sub(now).Seconds())
+		if secondsUntilStart < 0 {
+			secondsUntilStart = 0
+		}
+		startReached = !now.Before(start)
+		startTimeStr = start.In(time.UTC).Format(time.RFC3339)
+		if qm.config.Debug {
+			debugInfo += fmt.Sprintf(", StartTime: %s, StartReached: %t, SecondsUntilStart: %d", startTimeStr, startReached, secondsUntilStart)
+		}
+	}
+
 	return QueuePageData{
 		Position:           positionInQueue + 1, // Display 1-based position
 		QueueSize:          queueSize,
@@ -742,13 +793,16 @@ func (qm *QueueManager) prepareQueuePageData(positionInQueue int) QueuePageData 
 		RefreshInterval:    qm.config.RefreshIntervalSeconds,
 		ProgressPercentage: progressPercentage,
 		DebugInfo:          debugInfo,
+		StartTime:          startTimeStr,
+		SecondsUntilStart:  secondsUntilStart,
+		StartTimeReached:   startReached,
 	}
 }
 
 // serveFallbackTemplate provides a basic, hardcoded HTML queue page.
 func (qm *QueueManager) serveFallbackTemplate(rw http.ResponseWriter, data QueueTemplateData) {
 	// Minified and slightly improved fallback HTML
-	fallbackHTML := `<!DOCTYPE html><html><head><title>Service Queue</title><meta http-equiv="refresh" content="[[.QueueData.RefreshInterval]]"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{font-family:Arial,sans-serif;text-align:center;margin:20px;padding:0;background-color:#f4f4f4;color:#333;} .container{max-width:600px;margin:40px auto;padding:20px;background-color:white;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.1);} h1{color:#2c3e50;margin-bottom:15px;} p{line-height:1.6;} .progress-container{width:100%;background-color:#e9ecef;border-radius:5px;margin:25px 0;overflow:hidden;} .progress-bar{height:24px;width:[[.QueueData.ProgressPercentage]]%;background-color:#3498db;text-align:center;line-height:24px;color:white;font-weight:bold;transition:width .3s ease;} .info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:15px;margin:20px 0;} .info-box{background-color:#f8f9fa;padding:15px;border-radius:5px;border-left:4px solid #3498db;} .info-box strong{display:block;margin-bottom:5px;color:#2c3e50;} .debug{font-size:0.85em;color:#7f8c8d;margin-top:20px;padding:10px;background-color:#ecf0f1;border-radius:4px;text-align:left;display:[[if .QueueData.DebugInfo]]block[[else]]none[[end]];}</style></head><body><div class="container"><h1>You're in the Queue</h1><p>Our service is currently experiencing high demand. Please wait, and this page will refresh automatically.</p><div class="progress-container"><div class="progress-bar">[[.QueueData.ProgressPercentage]]%</div></div><div class="info-grid"><div class="info-box"><strong>Your Position</strong>[[.QueueData.Position]] / [[.QueueData.QueueSize]]</div><div class="info-box"><strong>Est. Wait Time</strong>~[[.QueueData.EstimatedWaitTime]] min(s)</div></div><p>This page will refresh in <span id="countdown">[[.QueueData.RefreshInterval]]</span> seconds.</p><div class="debug"><strong>Debug Info:</strong> <pre>[[.QueueData.DebugInfo]]</pre></div></div><script>let s=[[.QueueData.RefreshInterval]];const e=document.getElementById("countdown");function n(){s--,e.textContent=s,s<=0&&window.location.reload(!0)}e&&setInterval(n,1e3);</script></body></html>`
+	fallbackHTML := `<!DOCTYPE html><html><head><title>Service Queue</title><meta http-equiv="refresh" content="[[.QueueData.RefreshInterval]]"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>body{font-family:Arial,sans-serif;text-align:center;margin:20px;padding:0;background-color:#f4f4f4;color:#333;} .container{max-width:600px;margin:40px auto;padding:20px;background-color:white;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.1);} h1{color:#2c3e50;margin-bottom:15px;} p{line-height:1.6;} .progress-container{width:100%;background-color:#e9ecef;border-radius:5px;margin:25px 0;overflow:hidden;} .progress-bar{height:24px;width:[[.QueueData.ProgressPercentage]]%;background-color:#3498db;text-align:center;line-height:24px;color:white;font-weight:bold;transition:width .3s ease;} .info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:15px;margin:20px 0;} .info-box{background-color:#f8f9fa;padding:15px;border-radius:5px;border-left:4px solid #3498db;} .info-box strong{display:block;margin-bottom:5px;color:#2c3e50;} .debug{font-size:0.85em;color:#7f8c8d;margin-top:20px;padding:10px;background-color:#ecf0f1;border-radius:4px;text-align:left;display:[[if .QueueData.DebugInfo]]block[[else]]none[[end]];}</style></head><body><div class="container"><h1>You're in the Queue</h1><p>Our service is currently experiencing high demand. Please wait, and this page will refresh automatically.</p>[[if .QueueData.StartTime]]<div class="info-box"><strong>Start Time</strong><div>[[.QueueData.StartTime]]</div>[[if not .QueueData.StartTimeReached]]<div id="start-countdown">Starting in [[.QueueData.SecondsUntilStart]] seconds</div>[[end]]</div>[[end]]<div class="progress-container"><div class="progress-bar">[[.QueueData.ProgressPercentage]]%</div></div><div class="info-grid"><div class="info-box"><strong>Your Position</strong>[[.QueueData.Position]] / [[.QueueData.QueueSize]]</div><div class="info-box"><strong>Est. Wait Time</strong>~[[.QueueData.EstimatedWaitTime]] min(s)</div></div><p>This page will refresh in <span id="countdown">[[.QueueData.RefreshInterval]]</span> seconds.</p><div class="debug"><strong>Debug Info:</strong> <pre>[[.QueueData.DebugInfo]]</pre></div></div><script>let s=[[.QueueData.RefreshInterval]];const e=document.getElementById("countdown");function n(){s--,e.textContent=s,s<=0&&window.location.reload(!0)}e&&setInterval(n,1e3);const sc=document.getElementById("start-countdown");if(sc){let ss=parseInt(sc.textContent.replace(/\\D+/g,""),10);setInterval(()=>{ss=Math.max(0,ss-1);sc.textContent="Starting in "+ss+" seconds";if(ss===0){window.location.reload(!0)}},1e3);}</script></body></html>`
 
 	tmpl, err := template.New("FallbackQueuePage").Delims("[[", "]]").Parse(fallbackHTML)
 	if err != nil {

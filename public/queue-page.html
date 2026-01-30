@@ -122,9 +122,19 @@
     </style>
 </head>
 <body>
-    <div class="container">
+        <div class="container">
         <div class="spinner"></div> <h1>[[.Translations.Title]]</h1>
         <p>[[.Translations.Introduction]]</p>
+
+        [[if .QueueData.StartTime]]
+        <div class="info-box" style="text-align:center;">
+            <strong>Start Time</strong>
+            <p>[[.QueueData.StartTime]]</p>
+            [[if not .QueueData.StartTimeReached]]
+            <p id="start-countdown">Starting in [[.QueueData.SecondsUntilStart]] seconds</p>
+            [[end]]
+        </div>
+        [[end]]
         
         <div class="progress-container">
             <div class="progress-bar">[[.QueueData.ProgressPercentage]]%</div>
@@ -169,11 +179,27 @@
                         // window.location.reload(true); 
                     }
                 }
-                // Initial call to set the value, then interval
-                if (countdownSeconds > 0) {
-                     countdownElement.textContent = countdownSeconds;
-                     setInterval(updateCountdown, 1000);
-                }
+            // Initial call to set the value, then interval
+            if (countdownSeconds > 0) {
+                countdownElement.textContent = countdownSeconds;
+                setInterval(updateCountdown, 1000);
+            }
+        }
+
+            // Countdown to start time if provided
+            const startCountdownEl = document.getElementById('start-countdown');
+            if (startCountdownEl) {
+                let startSeconds = parseInt(startCountdownEl.textContent.replace(/\\D+/g, ''), 10);
+                const tick = () => {
+                    startSeconds--;
+                    if (startSeconds < 0) startSeconds = 0;
+                    startCountdownEl.textContent = 'Starting in ' + startSeconds + ' seconds';
+                    if (startSeconds === 0) {
+                        window.location.reload(true);
+                    }
+                };
+                tick();
+                setInterval(tick, 1000);
             }
 
             // Fallback refresh mechanism in case meta refresh fails (e.g., some browser extensions)
