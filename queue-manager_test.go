@@ -29,6 +29,42 @@ func (m *mockNext) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func TestStartTimeBlocksUntilReached(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.StartTime = time.Now().Add(2 * time.Hour).Format(time.RFC3339)
+	cfg.StartTimeZone = "UTC"
+	cfg.MaxEntries = 1
+
+	nextCalled := false
+	nextHandler := &mockNext{serveHTTPFunc: func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusOK)
+	}}
+
+	qmHandler, err := New(context.Background(), nextHandler, cfg, "test-start-time")
+	if err != nil {
+		t.Fatalf("failed to init queue manager: %v", err)
+	}
+	qm := qmHandler.(*QueueManager)
+	defer qm.Stop()
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+
+	qm.ServeHTTP(rr, req)
+
+	if nextCalled {
+		t.Fatalf("expected request to be blocked by start time, but next handler was called")
+	}
+	if rr.Code != cfg.HTTPResponseCode {
+		t.Fatalf("expected queue response code %d, got %d", cfg.HTTPResponseCode, rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "Start Time") {
+		t.Fatalf("expected start time to be present in response, got: %s", body)
+	}
+}
+
 // Helper to create a temporary file with content.
 func createTempFile(t *testing.T, content string) (string, func()) {
 	t.Helper()
